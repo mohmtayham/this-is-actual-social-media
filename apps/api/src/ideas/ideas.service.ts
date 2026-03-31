@@ -66,14 +66,33 @@ export class IdeasService {
       throw error;
     }
   }
-  async findByOwner(userId: number) {
-  return this.prisma.idea.findMany({
-    where: { ownerId: userId },
-    include: {
-      committee: true,
-      profitDistributions: true,
-    },
-  });
+ async findByOwner(userId: number) {
+  console.log(`--- 🔍 [Backend: IdeasService] findByOwner STARTED for userId: ${userId} ---`);
+  
+  try {
+    // طباعة نوع البيانات للتأكد هل هو Number أم String
+    console.log(`[IdeasService] Type of userId is: ${typeof userId}`);
+
+    const ideas = await this.prisma.idea.findMany({
+      where: {
+        // ⚠️ تأكد من أن اسم الحقل هنا (مثلاً ownerId) هو نفسه الموجود في prisma.schema لديك
+        ownerId: userId, 
+      },
+    });
+
+    console.log(`--- 🔍 [Backend: IdeasService] Prisma query finished. Found ${ideas.length} ideas.`);
+    
+    if (ideas.length === 0) {
+      console.warn(`[IdeasService] ⚠️ Note: Database returned 0 records for ownerId: ${userId}`);
+    }
+
+    return ideas;
+
+  } catch (error: any) {
+    console.error(`--- ❌ [Backend: IdeasService] Error querying database in findByOwner!`);
+    console.error(error.message);
+    throw error;
+  }
 }
 
   // Method for updating idea content (title, description, etc.) - ONLY OWNER

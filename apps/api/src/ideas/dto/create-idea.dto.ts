@@ -29,6 +29,7 @@ export class CreateIdeaDto {
   @IsOptional()
   additional_notes?: string;
 
+  
   @IsBoolean()
   @IsNotEmpty()
   terms_accepted: boolean;

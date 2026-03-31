@@ -1,0 +1,148 @@
+
+//   async evaluateByCommitteeToidea(ideaId: number, userId: number,dto: EvaluateIdeaDto) {
+//     // 1. Guard: Check if user is in the correct committee
+//     const user = await this.prisma.user.findUnique({
+//       where: { id: userId },
+//       include: { committeeMembers: true }
+//     });
+
+//     const idea = await this.prisma.idea.findUnique({
+//       where: { id: ideaId },
+//       include: { owner: true, roadmap: true }
+//     });
+
+//     if (!idea) throw new NotFoundException('Idea not found');
+    
+//     const userCommitteeId = user?.committeeMembers[0]?.committeeId;
+//     if (!userCommitteeId || idea.committeeId !== userCommitteeId) {
+//       throw new ForbiddenException('ليس لديك صلاحية تقييم هذه الفكرة.');
+//     }
+
+//     // 2. Guard: Ensure the initial meeting happened
+//     const meeting = await this.prisma.meeting.findFirst({
+//       where: {
+//         ideaId: idea.id,
+//         type: 'initial',
+//         meetingDate: { lte: new Date() }, // Meeting date is in the past
+//       },
+//     });
+
+//     if (!meeting) {
+//       throw new UnprocessableEntityException('لا يمكن تقييم الفكرة قبل انعقاد الاجتماع الأولي من قبل اللجنة.');
+//     }
+
+//     // 3. Calculate Status & Logic (Just like Laravel)
+//     let newStatus: IdeaStatus;
+//     let nextStageName: string;
+//     let stageDescription: string;
+//     let progressPercentage = 0; // Set default based on your logic
+
+//     const currentStageName = 'Initial Evaluation';
+
+//     // Mocking your roadmap array logic for simplicity
+//     if (dto.evaluationScore >= 80) {
+//       newStatus = 'APPROVED'; // Use the exact casing from your Prisma Enum
+//       nextStageName = 'Systematic Planning / Business Plan Preparation';
+//       stageDescription = `Stage executed by: Committee | Next stage: ${nextStageName} (executed by: Idea Owner)`;
+//       progressPercentage = 22.2; // roughly 2/9 steps
+//     } else if (dto.evaluationScore >= 50) {
+//       newStatus = 'NEEDS_REVISION';
+//       nextStageName = 'Rework the idea';
+//       stageDescription = 'Please revise your idea according to committee feedback';
+//     } else {
+//       newStatus = 'REJECTED';
+//       nextStageName = 'Submit a new idea';
+//       stageDescription = 'Your idea was not feasible / not implementable';
+//     }
+
+//     // Notification Message logic
+//     let notificationMessage = '';
+//     if (newStatus === 'APPROVED') {
+//         notificationMessage = `تم قبول فكرتك '${idea.title}'. يمكنك الانتقال للمرحلة التالية.`;
+//     } else if (newStatus === 'NEEDS_REVISION') {
+//         notificationMessage = `فكرتك '${idea.title}' بحاجة لإعادة صياغة.`;
+//     } else {
+//         notificationMessage = `فكرتك '${idea.title}' غير قابلة للتنفيذ، يرجى تقديم فكرة جديدة.`;
+//     }
+
+//     // 4. THE TRANSACTION - Do everything at once safely
+//     return this.prisma.$transaction(async (tx) => {
+      
+//       // A. Upsert the Report (Update or Create)
+//       // Note: In your schema, Report doesn't have score/strengths/weaknesses.
+//       // You might need to format these into the 'content' field as a JSON string, 
+//       // or update your Prisma schema to match your Laravel database.
+//       const reportContent = JSON.stringify({
+//           score: dto.evaluationScore,
+//           strengths: dto.strengths,
+//           weaknesses: dto.weaknesses,
+//           recommendations: dto.recommendations,
+//           description: dto.description || 'تقرير التقييم الأولي للفكرة.',
+//       });
+
+//       const existingReport = await tx.report.findFirst({
+//           where: { ideaId: idea.id, reportType: 'initial' }
+//       });
+
+//       let report;
+//       if (existingReport) {
+//           report = await tx.report.update({
+//               where: { id: existingReport.id },
+//               data: { content: reportContent } // Assuming you store everything in 'content'
+//           });
+//       } else {
+//           report = await tx.report.create({
+//               data: {
+//                   ideaId: idea.id,
+//                   reportType: 'initial',
+//                   title: 'Initial Evaluation Report',
+//                   content: reportContent,
+//               }
+//           });
+//       }
+
+//       // B. Update the Idea
+//       const updatedIdea = await tx.idea.update({
+//         where: { id: idea.id },
+//         data: {
+//           status: newStatus,
+//           initialEvaluationScore: dto.evaluationScore,
+//           roadmapStage: currentStageName,
+//         },
+//       });
+
+//       // C. Update the Roadmap (if it exists)
+//       if (idea.roadmap) {
+//         await tx.roadmap.update({
+//           where: { id: idea.roadmap.id }, // Assuming roadmap ID is accessible
+//           data: {
+//             currentStage: currentStageName,
+//             stageDescription: stageDescription,
+//             progressPercentage: progressPercentage,
+//             nextStep: nextStageName,
+//             lastUpdate: new Date(),
+//           },
+//         });
+//       }
+
+//       // D. Send Notification
+//       if (idea.ownerId) {
+//           await tx.notification.create({
+//               data: {
+//                   userId: idea.ownerId,
+//                   title: 'نتيجة التقييم الأولي لفكرتك',
+//                   message: notificationMessage,
+//                   type: 'initial_report_owner',
+//               }
+//           });
+//       }
+
+//       return { idea: updatedIdea, report };
+//     });
+//   }
+// }
+
+
+
+
+

@@ -4,11 +4,12 @@ import React from 'react';
 import { useRouter } from 'next/navigation'; // استخدام موجه Next.js بدلاً من react-router-dom
 import Link from 'next/link'; // استخدام رابط Next.js
 import Lottie from 'lottie-react';
+
 // تأكد من مسار الاستيراد بناءً على هيكلة مشروعك، يفضل استخدام Alias مثل @
 import bubleAnimation from "../../assets/animations/buble.json";
 
 const ProdifyLanding = () => {
-  const router = useRouter(); // تغيير useNavigate إلى useRouter
+  const router = useRouter(); 
 
   const handleStartBuilding = () => {
     router.push('/'); // تغيير navigate إلى router.push

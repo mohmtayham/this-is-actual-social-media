@@ -26,7 +26,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
 
 @Controller('ideas')
-//@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class IdeasController {
   private readonly logger = new Logger(IdeasController.name);
 
@@ -39,10 +39,35 @@ create(@Req() req, @Body() dto: CreateIdeaDto) {
   @Get()
   async findAll() {
     return this.ideasService.findAll();
-  }
-  @Get('my-ideas')
+  
+  }@Get('my-ideas')
 async getMyIdeas(@Req() req) {
-  return this.ideasService.findByOwner(req.user.id);
+  this.logger.log('--- 🟢 [Backend: IdeasController] getMyIdeas endpoint HIT! ---');
+  
+  try {
+    // 1. فحص كائن الـ user القادم من الـ JWT
+    this.logger.log(`[Backend] req.user object is: ${JSON.stringify(req.user)}`);
+    
+    // 2. محاولة استخراج الـ ID بكل الطرق الممكنة
+    const userId = req.user?.userId || req.user?.id || req.user?.sub;
+    this.logger.log(`[Backend] Extracted userId is: ${userId}`);
+    
+    if (!userId) {
+      this.logger.warn('[Backend] ⚠️ WARNING: No user ID could be extracted from req.user!');
+    }
+
+    // 3. استدعاء السيرفيس ومراقبة النتيجة
+    this.logger.log(`[Backend] Calling ideasService.findByOwner with userId: ${userId}`);
+    const result = await this.ideasService.findByOwner(userId);
+    
+    this.logger.log(`[Backend] ✅ Success! Found (${result?.length || 0}) ideas for this user.`);
+    return result;
+
+  } catch (error: any) {
+    this.logger.error(`[Backend] ❌ ERROR in getMyIdeas Controller: ${error.message}`);
+    this.logger.error(error.stack); // لطباعة مكان الخطأ بالتفصيل
+    throw error;
+  }
 }
   @Get(':id')
   async findOne(@Param('id', ParseIntPipe) id: number) {

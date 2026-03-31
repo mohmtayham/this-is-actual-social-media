@@ -13,8 +13,7 @@ export class TasksController {
   }
 
 
-  @Get(':ganttId/tasks')
-showTasks(
+  @Get(':ganttId/tasks')showTasks(
   @Param('ganttId') ganttId: number,
   @Req() req
 ) {
@@ -25,10 +24,6 @@ showTasks(
 }
  
 
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateTaskDto: UpdateTaskDto) {
-    return this.tasksService.update(+id, updateTaskDto);
-  }
 
  
 }

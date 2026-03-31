@@ -1,18 +1,20 @@
 import api from "./api";
+import { authFetch } from "@/lib/authFetch";
 
 const addIdea = async (ideaData: any) => {
-  try {
-    // بما أن api.post تعيد البيانات مباشرة، لا حاجة لـ .data
-    return await api.post("/ideas", ideaData);
-  } catch (err: any) {
-    console.error("Error adding idea:", err);
-    // مع fetch، الخطأ يكون هو كائن الخطأ نفسه أو نص الرسالة
-    throw err || { message: "Failed to submit idea" };
-  }
-};
+  const res = await authFetch("/ideas", {
+    method: "POST",
+    body: JSON.stringify(ideaData),
+  });
 
+  if (!res.ok) {
+    throw new Error("Failed to submit idea");
+  }
+
+  return res.json();
+};
 const getMyIdeas = async () => {
-  return await api.get("/my-ideas");
+  return await api.get("/ideas/my-ideas");
 };
 
 const updateIdea = async (ideaId: string, ideaData: any) => {

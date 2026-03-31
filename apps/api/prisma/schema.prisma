@@ -16,6 +16,42 @@ enum UserRole {
   IDEA_OWNER
   COMMITTEE_MEMBER
 }
+
+
+// Add these enums where other enums are defined
+enum FollowupPhase {
+  week_1
+  month_1
+  month_3
+  month_6
+}
+
+enum FollowupStatus {
+  pending
+  done
+  issue_detected
+}
+
+enum PerformanceStatus {
+  excellent
+  stable
+  at_risk
+  failing
+}
+
+enum RiskLevel {
+  low
+  medium
+  high
+}
+
+enum CommitteeDecision {
+  continue
+  extra_support
+  pivot_required
+  terminate
+  graduate
+}
 enum BusinessPlanStatus {
   DRAFT
   UNDER_REVIEW
@@ -29,6 +65,20 @@ enum CommitteeMemberRole {
   INVESTOR
   TECHNICAL_EXPERT
 }
+enum LaunchRequestStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  LAUNCHED
+  HALTED
+}
+enum WithdrawalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 
 enum IdeaStatus {
   SUBMITTED
@@ -90,6 +140,12 @@ model User {
   sentTransactions     WalletTransaction[] @relation("Sender")
   receivedTransactions WalletTransaction[] @relation("Receiver")
   profitDistributions  ProfitDistribution[]
+  requestedWithdrawals WithdrawalRequest[] @relation("RequestedBy")
+  reviewedWithdrawals  WithdrawalRequest[] @relation("ReviewedBy")
+  approvedLaunchRequests LaunchRequest[] @relation("LaunchApprovedBy")
+  reviewedFollowups     PostLaunchFollowup[]  @relation("Reviewer")  // optional
+
+
 
   @@map("users") 
 }
@@ -152,6 +208,9 @@ model Idea {
   reports                Report[]
   profitDistributions    ProfitDistribution[]
   businessPlans BusinessPlan[]
+  withdrawalRequests WithdrawalRequest[]
+  
+launchRequests     LaunchRequest[]
   @@map("ideas")
 }
 model ProfitDistribution {
@@ -202,6 +261,7 @@ model GanttChart {
   progress       Int      @default(0)
   failureCount   Int      @default(0) @map("failure_count")
   approvalStatus String   @default("pending") @map("approval_status")
+  evaluationComments String? @map("evaluation_comments") @db.Text
   
   // Relations
   ideaId         Int      @map("idea_id")
@@ -211,6 +271,104 @@ model GanttChart {
   fundings       Funding[]
 
   @@map("gantt_charts")
+}
+
+model WithdrawalRequest {
+  id             Int      @id @default(autoincrement())
+
+  ideaId         Int
+  idea           Idea     @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+
+  requestedById  Int      @map("requested_by")
+  requestedBy    User     @relation("RequestedBy", fields: [requestedById], references: [id], onDelete: Cascade)
+
+  reason         String   @db.Text
+
+  status         WithdrawalStatus @default(PENDING)
+
+  penaltyAmount  Decimal  @default(0) @map("penalty_amount") @db.Decimal(15,2)
+  penaltyPaid    Boolean  @default(false) @map("penalty_paid")
+
+  reviewedById   Int?     @map("reviewed_by")
+  reviewedBy     User?    @relation("ReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  reviewedAt     DateTime? @map("reviewed_at")
+
+  committeeNotes String?  @map("committee_notes") @db.Text
+
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("withdrawal_requests")
+}
+
+model LaunchRequest {
+  id                 Int      @id @default(autoincrement())
+
+  ideaId             Int      @map("idea_id")
+  idea               Idea     @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+
+  version            Int?
+  executionSteps     String?  @map("execution_steps") @db.Text
+  marketingStrategy  String?  @map("marketing_strategy") @db.Text
+  riskMitigation     String?  @map("risk_mitigation") @db.Text
+
+  founderCommitment  Boolean  @default(false) @map("founder_commitment")
+
+  status             LaunchRequestStatus @default(SUBMITTED)
+
+  committeeNotes     String?  @map("committee_notes") @db.Text
+
+  approvedById       Int?     @map("approved_by")
+approvedBy User? @relation("LaunchApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  approvedAt         DateTime? @map("approved_at")
+  launchDate         DateTime? @map("launch_date")
+
+  createdAt          DateTime  @default(now()) @map("created_at")
+    postLaunchFollowups   PostLaunchFollowup[]  // one-to-many relation
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@map("launch_requests")
+}
+model PostLaunchFollowup {
+  id                     Int                @id @default(autoincrement())
+  launch_request_id      Int                @map("launch_request_id")
+  launch_request         LaunchRequest      @relation(fields: [launch_request_id], references: [id], onDelete: Cascade)
+  
+  followup_phase         FollowupPhase      @map("followup_phase")
+  scheduled_date         DateTime           @map("scheduled_date")  // date only in DB, but use DateTime in Prisma
+  status                 FollowupStatus     @default(pending)
+  
+  active_users           Int?               @map("active_users")
+  revenue                Decimal?           @db.Decimal(12, 2)
+  growth_rate            Decimal?           @db.Decimal(5, 2) @map("growth_rate")
+  
+  performance_status     PerformanceStatus? @map("performance_status")
+  risk_level             RiskLevel?         @map("risk_level")
+  risk_description       String?            @map("risk_description") @db.Text
+  
+  committee_decision     CommitteeDecision? @map("committee_decision")
+  owner_response         String?            @map("owner_response") @db.Text
+  owner_acknowledged     Boolean            @default(false) @map("owner_acknowledged")
+  
+  marketing_support_given Boolean            @default(false) @map("marketing_support_given")
+  product_issue_detected  Boolean            @default(false) @map("product_issue_detected")
+  
+  actions_taken          String?            @map("actions_taken") @db.Text
+  committee_notes        String?            @map("committee_notes") @db.Text
+  
+  is_stable              Boolean            @default(false) @map("is_stable")
+  profit_distributed     Boolean            @default(false) @map("profit_distributed")
+  graduation_date        DateTime?          @map("graduation_date")
+  
+  reviewed_by            Int?               @map("reviewed_by")
+  reviewer               User?              @relation("Reviewer", fields: [reviewed_by], references: [id], onDelete: SetNull)
+  
+  created_at             DateTime           @default(now()) @map("created_at")
+  updated_at             DateTime           @updatedAt @map("updated_at")
+  
+  @@map("post_launch_followups")
 }
 
 model Task {
@@ -295,6 +453,7 @@ model Funding {
 model Meeting {
   id          Int      @id @default(autoincrement())
   meetingDate DateTime @map("meeting_date")
+  meetingLink String   @map("meeting_link")
   notes       String?  @db.Text
   type        String
   requestedBy String   @map("requested_by")
@@ -302,25 +461,39 @@ model Meeting {
   // Relations
   ideaId      Int      @map("idea_id")
   idea        Idea     @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+   reports     Report[]  
 
   @@map("meetings")
 }
 
 model Report {
-  id          Int      @id @default(autoincrement())
-  title       String
-  content     String   @db.Text
-  reportType  String   @map("report_type")
-  
-  createdAt   DateTime @default(now()) @map("created_at")
+  id               Int      @id @default(autoincrement())
 
   // Relations
-  ideaId      Int      @map("idea_id")
-  idea        Idea     @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+  ideaId           Int      @map("idea_id")
+  idea             Idea     @relation(fields: [ideaId], references: [id], onDelete: Cascade)
 
+  meetingId        Int?     @map("meeting_id")
+  meeting          Meeting? @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  // Fields مطابق للـ Laravel
+  description      String?  @db.Text
+  reportType       String   @map("report_type")
+
+  evaluationScore  Decimal? @map("evaluation_score") @db.Decimal(5, 2)
+
+  strengths        String?  @db.Text
+  weaknesses       String?  @db.Text
+  recommendations  String?  @db.Text
+
+  status           String   @default("pending")
+
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@unique([ideaId, reportType]) // 👈 REQUIRED for upsert
   @@map("reports")
 }
-
 model Notification {
   id        Int      @id @default(autoincrement())
   title     String
@@ -354,7 +527,7 @@ model BusinessPlan {
   revenueStreams         String?             @db.Text @map("revenue_streams")
 
   status                 BusinessPlanStatus  @default(DRAFT)
-
+latestScore            Int?                @map("latest_score") @db.UnsignedTinyInt
   createdAt              DateTime            @default(now()) @map("created_at")
   updatedAt              DateTime            @updatedAt @map("updated_at")
 

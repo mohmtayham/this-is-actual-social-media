@@ -18,12 +18,19 @@ import { WalletsModule } from './wallets/wallets.module';
 import { ReportsModule } from './reports/reports.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ProfileModule } from './profile/profile.module';
+// import { MeetingsResolver } from './meetings/meetings.resolver';
+import { PostLaunchFollowupsModule } from './post-launch-followups/post-launch-followups.module';
+import { MettingModule } from './meeting/meeting.module';
+import { LaunchSchedulerModule } from './launch-scheduler/launch-scheduler.module';
+import { WalletTransactionModule } from './wallet-transaction/wallet-transaction.module';
+import { LaunchRequestModule } from './launch-request/launch-request.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     AuthModule,
     UserModule,
+     LaunchSchedulerModule,
     IdeasModule,
     BusinessPlansModule,
     CommitteesModule,
@@ -35,6 +42,10 @@ import { ProfileModule } from './profile/profile.module';
     ReportsModule,
     NotificationsModule,
     ProfileModule,
+    MettingModule,
+    PostLaunchFollowupsModule,
+    WalletTransactionModule,
+    LaunchRequestModule,
   ],
   controllers: [AppController],
   providers: [
@@ -44,6 +55,7 @@ import { ProfileModule } from './profile/profile.module';
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
     },
+    // MeetingsResolver,
   ],
 })
 export class AppModule {}

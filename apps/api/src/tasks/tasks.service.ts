@@ -30,14 +30,8 @@ const gantt =await  this.prisma.ganttChart.findUnique({
     data:{
     ...createTaskDto,
     },
-  });
-  
-  
+  });  
 }
-
-  
-
-
   findAll() {
     return `This action returns all tasks`;
   }
@@ -76,60 +70,55 @@ const gantt =await  this.prisma.ganttChart.findUnique({
 }
 
 
+  async updateGanttProgress(ganttId: number) {
+  // 1. جلب بيانات الـ Gantt مع المهام المرتبطة به
+  const gantt = await this.prisma.ganttChart.findUnique({
+    where: { id: ganttId },
+    include: { tasks: true },
+  });
 
-  update(id: number, updateTaskDto: UpdateTaskDto) {
- 
+  if (!gantt) {
+    throw new NotFoundException('Gantt chart not found');
   }
-async updateGanttProgress(ganttId: number) {
-    // 1. جلب المخطط مع مهامه من قاعدة البيانات
-    const gantt = await this.prisma.ganttChart.findUnique({
-      where: { id: ganttId },
-      include: { tasks: true },
-    });
 
-    if (!gantt) {
-      throw new NotFoundException('Gantt Chart not found');
-    }
-
-    const tasks = gantt.tasks;
-
-    // 2. إذا لم يكن هناك مهام، نصفر النسبة
-    if (tasks.length === 0) {
-      return this.prisma.ganttChart.update({
-        where: { id: ganttId },
-        data: {
-          progress: 0,
-          approvalStatus: 'pending', // عدلتها لتطابق الـ Schema لديك
-        },
-      });
-    }
-
-    // 3. استخدام let بدلاً من const لأننا سنقوم بتغيير القيم
-    let totalWeight:number = 0;                    
-    let totalProgress:number = 0;
-
-    tasks.forEach((task) => {
-      totalWeight += task.weight;
-      
-      // بما أن الـ Task لديك لها حقل isCompleted (وليس progress نسبة مئوية)
-      // نعتبر المهمة المكتملة 100% وغير المكتملة 0%
-      const taskProgressPercentage = task.isCompleted ? 100 : 0;
-      
-      totalProgress += taskProgressPercentage * task.weight;
-    });
-
-    // 4. الحماية من القسمة على صفر وحساب النسبة النهائية
-    const finalProgress = totalWeight > 0 ? Math.round(totalProgress / totalWeight) : 0;
-
-    // 5. تحديث المخطط في قاعدة البيانات
-    return this.prisma.ganttChart.update({
+   // 2. إذا لم يكن هناك مهام، نعتبر أن نسبة الإنجاز 0%
+  if (gantt.tasks.length === 0) {
+    return await this.prisma.ganttChart.update({
       where: { id: ganttId },
       data: {
-        progress: finalProgress,
-        // يمكنك تغيير الـ approvalStatus هنا إذا أردت بناءً على النسبة
-        // approvalStatus: finalProgress === 100 ? 'approved' : gantt.approvalStatus,
+        progress: 0,
+        approvalStatus: 'pending',
       },
     });
   }
+
+  // 3. حساب المدة الزمنية للـ Gantt (الوزن)
+  // تحويل التاريخ من Prisma (Date object) إلى أيام
+  const start = new Date(gantt.startDate);
+  const end = new Date(gantt.endDate);
+  
+  // حساب الفرق بالملي ثانية ثم تحويله لأيام
+  const diffTime = Math.abs(end.getTime() - start.getTime());
+  let duration = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+  
+  if (duration <= 0) duration = 1;
+
+  // 4. حساب نسبة الإنجاز بناءً على المهام المكتملة
+  // في الـ Schema الخاص بك، المهمة إما مكتملة (100%) أو لا (0%)
+  const completedTasks = gantt.tasks.filter(t => t.isCompleted).length;
+  const totalTasks = gantt.tasks.length;
+  
+  // نسبة الإنجاز = (عدد المهام المكتملة / إجمالي المهام) * 100
+  const completionPercentage = Math.round((completedTasks / totalTasks) * 100);
+
+  // 5. تحديث حقل الـ progress في قاعدة البيانات
+  return await this.prisma.ganttChart.update({
+    where: { id: ganttId },
+    data: {
+      progress: completionPercentage, // تحديث حقل progress الموجود في الـ Schema
+      approvalStatus: completionPercentage >= 100 ? 'completed' : 'in_progress',
+    },
+  });
+}
 }
   
