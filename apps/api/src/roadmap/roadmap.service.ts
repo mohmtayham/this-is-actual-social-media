@@ -9,46 +9,128 @@ import { get } from 'http';
 @Injectable()
 export class RoadmapService {
   constructor(private prisma: PrismaService) {}
-  async create(userId: number,createRoadmapDto: CreateRoadmapDto) {
-    const { ideaId,currentStage, progressPercentage = 0 } = createRoadmapDto;
-    
+async create(userId: number, createRoadmapDto: CreateRoadmapDto) {
+  const { ideaId, currentStage } = createRoadmapDto;
+
+  // 1️⃣ التحقق من وجود الفكرة أولاً
   const idea = await this.prisma.idea.findUnique({
-      where: { id: createRoadmapDto.ideaId },
-    });
-    if (!idea) {
-      throw new NotFoundException('Idea not found');
-    }
+    where: { id: ideaId },
+  });
+  if (!idea) {
+    throw new NotFoundException('Idea not found');
+  }
 
-    const roadmap = await this.prisma.roadmap.create({
-      data: {
-       ideaId: createRoadmapDto.ideaId,
-        currentStage: createRoadmapDto.currentStage,
-        progressPercentage: createRoadmapDto.progressPercentage,
+  // 2️⃣ منع إنشاء خارطة طريق مكررة لنفس الفكرة
+  const existingRoadmap = await this.prisma.roadmap.findFirst({
+    where: { ideaId },
+  });
+  if (existingRoadmap) {
+    throw new ForbiddenException('A roadmap already exists for this idea. Use PATCH to update it.');
+  }
 
+  // 3️⃣ جلب مصفوفة المراحل لحساب الخطوة التالية والنسبة المئوية
+  const roadmapStages = this.getAllStages();
+  const currentStageName = currentStage || roadmapStages[0].name;
+
+  const currentStageIndex = roadmapStages.findIndex(
+    (stage) => stage.name === currentStageName,
+  );
+
+  // إذا لم يتم العثور على المرحلة المرسلة، نختار المرحلة الأولى كخيار افتراضي
+  const actualIndex = currentStageIndex !== -1 ? currentStageIndex : 0;
+  const actualStageName = currentStageIndex !== -1 ? currentStageName : roadmapStages[0].name;
+
+  // تحديد المرحلة القادمة
+  const nextStage = actualIndex + 1 < roadmapStages.length ? roadmapStages[actualIndex + 1] : null;
+  const nextStageName = nextStage ? nextStage.name : null;
+
+  // حساب النسبة المئوية تلقائياً (إلا إذا تم إرسال نسبة مخصصة في الـ DTO)
+  const progressPercentage = createRoadmapDto.progressPercentage ?? ((actualIndex + 1) / roadmapStages.length) * 100;
+
+  // صياغة الوصف التلقائي
+  const stageDescription = `المرحلة الحالية: ${actualStageName}` + (nextStageName ? ` | المرحلة القادمة: ${nextStageName}` : '');
+
+  // 4️⃣ حفظ الخارطة في قاعدة البيانات بجميع البيانات المحسوبة
+  const roadmap = await this.prisma.roadmap.create({
+    data: {
+      ideaId,
+      currentStage: actualStageName,
+      progressPercentage,
+      stageDescription,
+      nextStep: nextStageName,
+      lastUpdate: new Date(), // تعيين تاريخ التحديث الحالي
+    },
+  });
+
+  // تحديث حقل المرحلة داخل جدول الأفكار أيضاً ليبقى متوافقاً
+  await this.prisma.idea.update({
+    where: { id: ideaId },
+    data: { roadmapStage: actualStageName },
+  });
+
+  return roadmap;
+}
+  findAll() {
+    return this.prisma.roadmap.findMany();
+  }
+
+  async findByIdea(ideaId: number) {
+    let roadmap = await this.prisma.roadmap.findFirst({
+      where: { ideaId },
+      include: {
+        idea: true,
       },
     });
 
+    if (!roadmap) {
+      // If no roadmap exists, let's create a default one for this idea so it doesn't crash
+      roadmap = await this.prisma.roadmap.create({
+        data: {
+          ideaId,
+          currentStage: 'Idea Submission',
+          progressPercentage: 10,
+          stageDescription: 'The idea has been submitted and is waiting for initial evaluation.',
+          nextStep: 'Initial Evaluation'
+        },
+        include: { idea: true }
+      });
+    }
 
     return roadmap;
-
   }
 
-  findAll() {
-    return this.prisma.roadmap.findMany();
+  async findOne(id: number) {
 
-  }
 
-  findOne(id: number) {
-    return this.prisma.roadmap.findUnique({
+  const roadmaps= await this.prisma.roadmap.findUnique({
       where: { id },
       include: {
         idea: true, // Include the related idea details
       },
 
 
-    });
-  }
+      
+  });
+if (!roadmaps) {
+      throw new NotFoundException(`Roadmap with ID ${id} not found`);
+    }
 
+   
+    return {
+      id: roadmaps.id,
+      ideaId: roadmaps.ideaId,
+      currentStage: roadmaps.currentStage,
+      progressPercentage: roadmaps.progressPercentage,
+     
+
+    };
+
+
+
+}
+
+
+  
   update(id: number, updateRoadmapDto: UpdateRoadmapDto) {
   const {currentStage, progressPercentage} = updateRoadmapDto;
   const exitingRoadmap =this.prisma.roadmap

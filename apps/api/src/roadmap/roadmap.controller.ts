@@ -33,6 +33,16 @@ export class RoadmapController {
   async findAll() {
     return this.roadmapService.findAll();
   }
+  @Get('idea/:ideaId')
+  async findByIdea(@Param('ideaId', ParseIntPipe) ideaId: number) {
+    return this.roadmapService.findByIdea(ideaId);
+  }
+  // جلب جميع مراحل خارطة الطريق (GET /roadmap/stages)
+  @Get('stages')
+  async getAllStages() {
+    const stages = this.roadmapService.getAllStages();
+    return { platform_roadmap_stages: stages };
+  }
 
   // جلب roadmap واحد بواسطة id (GET /roadmap/:id)
   @Get(':id')
@@ -53,12 +63,5 @@ export class RoadmapController {
   @Delete(':id')
   async remove(@Param('id', ParseIntPipe) id: number) {
     return this.roadmapService.remove(id);
-  }
-
-  // جلب جميع مراحل خارطة الطريق (GET /roadmap/stages)
-  @Get('stages')
-  async getAllStages() {
-    const stages = this.roadmapService.getAllStages();
-    return { platform_roadmap_stages: stages };
   }
 }

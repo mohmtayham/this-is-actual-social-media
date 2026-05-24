@@ -1,178 +1,228 @@
-import { Injectable, NotFoundException, BadRequestException,ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Role } from '@prisma/client';
 import { CreateGanttChartDto } from './dto/create-gantt-chart.dto';
 import { UpdateGanttChartDto } from './dto/update-gantt-chart.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { IdeasService } from 'src/ideas/ideas.service';
-import { CommitteesService } from 'src/committees/committees.service';
-import { NotificationsService } from 'src/notifications/notifications.service';
-
 
 @Injectable()
 export class GanttChartsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  async create(createGanttChartDto: CreateGanttChartDto) {
-    const { ideaId, startDate, endDate } = createGanttChartDto;
+  private async getUserOrThrow(userId: number) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    return user;
+  }
 
-    // التحقق من أن تاريخ البداية قبل تاريخ النهاية
-    if (new Date(startDate) >= new Date(endDate)) {
+  private validateDateRange(startDate: string | Date, endDate: string | Date) {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (start >= end) {
       throw new BadRequestException('Start date must be before end date');
     }
+  }
 
-    // التحقق من وجود الفكرة
+  private async assertIdeaAccess(ideaId: number, userId: number) {
+    const user = await this.getUserOrThrow(userId);
+
     const idea = await this.prisma.idea.findUnique({
       where: { id: ideaId },
-
-  
       include: {
-        businessPlans: true,
-        committee: { include: { members: true } }
-      }
-   } );
+        committee: {
+          include: {
+            members: true,
+          },
+        },
+      },
+    });
 
     if (!idea) {
       throw new NotFoundException('Idea not found');
     }
-    
 
+    const isOwner = idea.ownerId === user.id;
+    const isAdmin = user.role === Role.ADMIN;
+    const isCommitteeMember = idea.committee?.members.some((member) => member.userId === user.id) ?? false;
 
-    // إنشاء مخطط جانت
+    return {
+      user,
+      idea,
+      isOwner,
+      isAdmin,
+      isCommitteeMember,
+    };
+  }
+
+  async create(userId: number, createGanttChartDto: CreateGanttChartDto) {
+    this.validateDateRange(createGanttChartDto.startDate, createGanttChartDto.endDate);
+
+    const access = await this.assertIdeaAccess(createGanttChartDto.ideaId, userId);
+    if (!access.isOwner && !access.isAdmin && !access.isCommitteeMember) {
+      throw new ForbiddenException('You do not have permission to create gantt phases for this idea');
+    }
+
     return this.prisma.ganttChart.create({
       data: {
-        ...createGanttChartDto, // يحتوي على جميع الحقول بما فيها ideaId
+        ideaId: createGanttChartDto.ideaId,
+        phaseName: createGanttChartDto.phaseName,
+        startDate: new Date(createGanttChartDto.startDate),
+        endDate: new Date(createGanttChartDto.endDate),
+        progress: createGanttChartDto.progress ?? 0,
+        failureCount: createGanttChartDto.failureCount ?? 0,
+        approvalStatus: createGanttChartDto.approvalStatus ?? 'pending',
       },
       include: {
-        idea: true, // تضمين بيانات الفكرة في النتيجة
+        idea: true,
+        tasks: true,
       },
     });
-
-    
   }
 
   async findAll() {
     return this.prisma.ganttChart.findMany({
       include: {
-        idea: true, // تضمين بيانات الفكرة في النتيجة
+        idea: true,
+        tasks: true,
+      },
+      orderBy: {
+        startDate: 'asc',
       },
     });
   }
+
   async findOne(id: number) {
     const ganttChart = await this.prisma.ganttChart.findUnique({
       where: { id },
       include: {
-        idea: true, // تضمين بيانات الفكرة في النتيجة
+        idea: true,
+        tasks: true,
       },
     });
+
     if (!ganttChart) {
       throw new NotFoundException('Gantt chart not found');
     }
+
     return ganttChart;
   }
-  async update(id: number, updateGanttChartDto: UpdateGanttChartDto) {
-    const { startDate, endDate } = updateGanttChartDto;
-    // التحقق من أن تاريخ البداية قبل تاريخ النهاية
-    if (startDate && endDate && new Date(startDate) >= new Date(endDate)) {
-      throw new BadRequestException('Start date must be before end date');
-    } 
-    // التحقق من وجود مخطط جانت
+
+  async update(id: number, userId: number, updateGanttChartDto: UpdateGanttChartDto) {
     const existingGanttChart = await this.prisma.ganttChart.findUnique({
       where: { id },
+      include: {
+        idea: {
+          include: {
+            committee: {
+              include: {
+                members: true,
+              },
+            },
+          },
+        },
+      },
     });
+
     if (!existingGanttChart) {
       throw new NotFoundException('Gantt chart not found');
     }
-    // تحديث مخطط جانت
+
+    const user = await this.getUserOrThrow(userId);
+    const isOwner = existingGanttChart.idea.ownerId === user.id;
+    const isAdmin = user.role === Role.ADMIN;
+    const isCommitteeMember =
+      existingGanttChart.idea.committee?.members.some((member) => member.userId === user.id) ?? false;
+
+    if (!isOwner && !isAdmin && !isCommitteeMember) {
+      throw new ForbiddenException('You do not have permission to update this gantt chart');
+    }
+
+    const startDate = updateGanttChartDto.startDate ?? existingGanttChart.startDate;
+    const endDate = updateGanttChartDto.endDate ?? existingGanttChart.endDate;
+    this.validateDateRange(startDate, endDate);
+
     return this.prisma.ganttChart.update({
       where: { id },
-      data: { 
-        ...updateGanttChartDto, // يحتوي على الحقول التي تم تحديثها
+      data: {
+        phaseName: updateGanttChartDto.phaseName,
+        startDate: updateGanttChartDto.startDate ? new Date(updateGanttChartDto.startDate) : undefined,
+        endDate: updateGanttChartDto.endDate ? new Date(updateGanttChartDto.endDate) : undefined,
+        progress: updateGanttChartDto.progress,
+        failureCount: updateGanttChartDto.failureCount,
+        approvalStatus: updateGanttChartDto.approvalStatus,
       },
       include: {
-        idea: true, // تضمين بيانات الفكرة في النتيجة
+        idea: true,
+        tasks: true,
       },
     });
-  } 
-  async remove(id: number) {
-  const existingGanttChart =await  this.prisma.ganttChart.findUnique({
-
-  where: { id },
-  });
-  if (!existingGanttChart) {
-    throw new NotFoundException('Gantt chart not found');
   }
+
+  async remove(id: number, userId: number) {
+    const existingGanttChart = await this.prisma.ganttChart.findUnique({
+      where: { id },
+      include: {
+        idea: {
+          select: {
+            ownerId: true,
+          },
+        },
+      },
+    });
+
+    if (!existingGanttChart) {
+      throw new NotFoundException('Gantt chart not found');
+    }
+
+    const user = await this.getUserOrThrow(userId);
+    const isOwner = existingGanttChart.idea.ownerId === user.id;
+    const isAdmin = user.role === Role.ADMIN;
+
+    if (!isOwner && !isAdmin) {
+      throw new ForbiddenException('You do not have permission to delete this gantt chart');
+    }
 
     return this.prisma.ganttChart.delete({
       where: { id },
     });
-  } 
+  }
 
-// Equivalent to your Laravel index()
   async getGanttCharts(ideaId: number, userId: number) {
-    if (!ideaId) {
-      throw new BadRequestException('يجب تحديد الفكرة.');
-    }
+    const access = await this.assertIdeaAccess(ideaId, userId);
 
-    const idea = await this.prisma.idea.findUnique({
-      where: { id: ideaId },
-      include: {
-        ganttCharts: { include: { tasks: true } },
-        // FIX 1: Use 'members', as defined in the Committee model
-        committee: { include: { members: true } }, 
-      },
-    });
-
-    if (!idea) {
-      throw new NotFoundException('الفكرة غير موجودة.');
-    }
-
-    // FIX 2: Use ownerId, not owner_id
-    const isOwner = idea.ownerId === userId; 
-    
-    // FIX 3: Iterate over 'members' and check 'userId', not 'user_id'
-    const isCommitteeMember = idea.committee?.members.some(
-      (member) => member.userId === userId 
-    );
-
-    if (!isOwner && !isCommitteeMember) {
-      throw new ForbiddenException('ليس لديك صلاحية الوصول إلى هذه الفكرة.');
+    if (!access.isOwner && !access.isAdmin && !access.isCommitteeMember) {
+      throw new ForbiddenException('You do not have permission to access this idea gantt chart');
     }
 
     return {
-      message: 'تم جلب المراحل بنجاح',
-      data: idea.ganttCharts,
+      message: 'Gantt phases retrieved successfully',
+      data: await this.prisma.ganttChart.findMany({
+        where: { ideaId },
+        include: { tasks: true },
+        orderBy: { startDate: 'asc' },
+      }),
     };
   }
 
-  // Equivalent to your Laravel getCommitteeIdeaGanttCharts()
   async getCommitteeGanttCharts(ideaId: number, userId: number) {
-    const idea = await this.prisma.idea.findUnique({
-      where: { id: ideaId },
-      include: {
-        ganttCharts: { include: { tasks: true } },
-        // FIX 1: Use 'members' here as well
-        committee: { include: { members: true } }, 
-      },
-    });
-
-    if (!idea) {
-      throw new NotFoundException('الفكرة غير موجودة.');
-    }
-
-    // FIX 3: Iterate over 'members' and check 'userId'
-    const isCommitteeMember = idea.committee?.members.some(
-      (member) => member.userId === userId 
-    );
-
-    if (!isCommitteeMember) {
-      throw new ForbiddenException('ليس لديك صلاحية الوصول إلى هذه الفكرة.');
+    const access = await this.assertIdeaAccess(ideaId, userId);
+    if (!access.isAdmin && !access.isCommitteeMember) {
+      throw new ForbiddenException('Only committee members or admins can access this endpoint');
     }
 
     return {
-      message: 'تم جلب المراحل والمهام بنجاح',
-      data: idea.ganttCharts,
+      message: 'Committee gantt data retrieved successfully',
+      data: await this.prisma.ganttChart.findMany({
+        where: { ideaId },
+        include: { tasks: true },
+        orderBy: { startDate: 'asc' },
+      }),
     };
   }
-
-
-
 }

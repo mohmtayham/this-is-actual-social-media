@@ -462,7 +462,7 @@ model Meeting {
   ideaId      Int      @map("idea_id")
   idea        Idea     @relation(fields: [ideaId], references: [id], onDelete: Cascade)
    reports     Report[]  
-
+@@unique([ideaId, type])
   @@map("meetings")
 }
 

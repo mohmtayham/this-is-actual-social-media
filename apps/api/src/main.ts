@@ -15,12 +15,15 @@
 
 // bootstrap();
 // main.ts
+import 'reflect-metadata'
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 
 async function bootstrap() {
+  console.log('--- [Bootstrap] Creating Nest application ---');
   const app = await NestFactory.create(AppModule);
+  console.log('--- [Bootstrap] Nest application created ---');
 
   // ✅ Enable CORS for Next.js frontend
   app.enableCors({
@@ -36,6 +39,10 @@ async function bootstrap() {
     transform: true,
   }));
 
-  await app.listen(process.env.PORT ?? 8000);
+  // Change these lines at the bottom of main.ts:
+  const port = 8000; // 👈 Hardcode 8001 here to test
+  console.log(`--- [Bootstrap] Listening on localhost:${port} ---`);
+  await app.listen(port); // 👈 Remove '0.0.0.0'
+  console.log(`--- [Bootstrap] API listening on localhost:${port} ---`);
 }
 bootstrap();

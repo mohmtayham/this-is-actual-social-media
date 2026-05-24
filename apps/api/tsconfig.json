@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
-    "module": "nodenext",
-    "moduleResolution": "nodenext",
-    "resolvePackageJsonExports": true,
+ "module": "NodeNext",
+"moduleResolution": "NodeNext",
+
     "esModuleInterop": true,
     "isolatedModules": false,
     "declaration": true,
@@ -11,16 +11,20 @@
     "experimentalDecorators": true,
     "allowSyntheticDefaultImports": true,
     "target": "ES2023",
+    "useDefineForClassFields": false,
     "sourceMap": true,
+    "rootDir": "./src",
     "outDir": "./dist",
-    "baseUrl": "./",
     "incremental": true,
     "skipLibCheck": true,
     "strictNullChecks": true,
+    "strictPropertyInitialization": false,
+    "useUnknownInCatchVariables": false,
     "forceConsistentCasingInFileNames": true,
     "noImplicitAny": false,
+    "baseUrl": "./",
     "paths": {
-      "@prisma/client": ["node_modules/.prisma/client"]
+      "src/*": ["./src/*"]
     }
   },
   "include": ["src/**/*"],

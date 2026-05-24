@@ -1,6 +1,5 @@
 // استيرادات ضرورية
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config'; // 1. استيراد ConfigService
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { Request } from 'express';
@@ -11,24 +10,19 @@ import type { AuthJwtPayload } from '../types/auth-jwtPayload';
 // اسم الاستراتيجية 'refresh-jwt' صحيح ومهم للتمييز
 export class RefreshStrategy extends PassportStrategy(Strategy, 'refresh-jwt') {
   constructor(
-    // 2. حقن ConfigService و AuthService
-    private readonly configService: ConfigService,
     private readonly authService: AuthService,
   ) {
-    // 3. جلب المفتاح السري من متغيرات البيئة
-    const secret = configService.get<string>('REFRESH_SECRET'); // تأكد من أن هذا هو اسم المتغير الصحيح
+    const secret = process.env.REFRESH_JWT_SECRET ?? process.env.REFRESH_SECRET;
 
-    // 4. التحقق من وجود المفتاح السري ورمي خطأ إذا لم يكن موجوداً
     if (!secret) {
-      throw new Error('REFRESH_SECRET is not defined in the environment variables');
+      throw new Error('REFRESH_JWT_SECRET or REFRESH_SECRET is not defined in the environment variables');
     }
 
-    // 5. استدعاء super() مع الإعدادات الصحيحة
     super({
       jwtFromRequest: ExtractJwt.fromBodyField('refresh'),
-      secretOrKey: secret, // الآن القيمة هي string بالتأكيد
+      secretOrKey: secret,
       ignoreExpiration: false,
-      passReqToCallback: true, // هذا الخيار يسمح بتمرير كائن Request إلى دالة validate
+      passReqToCallback: true,
     });
   }
 

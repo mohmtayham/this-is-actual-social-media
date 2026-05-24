@@ -1,270 +1,294 @@
+import { map } from 'rxjs';
+import { Prisma } from '@prisma/client';
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { CreateMeetingDto } from './dto/create-meeting.dto';
 import { UpdateMeetingDto } from './dto/update-meeting.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { Committee } from 'src/committees/entities/committee.entity';
-import { stat } from 'fs';
-import { response } from 'express';
 
 @Injectable()
-export class MettingService {
-constructor(private prisma: PrismaService) {}
-async getMettingOfIdeaOwner(ideaId: number, userId: number,) {
+export class MeetingService {
+  constructor(private prisma: PrismaService) {}
 
+  async getUpcomingMeetings(userId: number, ideaId: number) {
+  // 1. Fetch idea + meetings
   const idea = await this.prisma.idea.findUnique({
     where: { id: ideaId },
-  });
-
-  if (!idea) {
-    throw new NotFoundException('Idea not found');
-  }
-
-  if (idea.ownerId !== userId) {
-    throw new ForbiddenException('This idea does not belong to you');
-  }
-
-  const meetings = await this.prisma.meeting.findMany({
-    where: {
-      ideaId: ideaId,
-      meetingDate: {
-        gte: new Date(), 
+    include: {
+      meetings: {
+        where: {
+          meetingDate: {
+            gte: new Date(),
+          },
+        },
+        orderBy: {
+          meetingDate: 'asc',
+        },
       },
     },
-    orderBy: {
-      meetingDate: 'asc',
-    },
   });
 
-  
-  const formattedMeetings = meetings.map((meeting) => {
-    const now = new Date();
-    const hoursLeft =
-      (new Date(meeting.meetingDate).getTime() - now.getTime()) /
-      (1000 * 60 * 60);
+  // 2. Not Found
+  if (!idea) {
+    throw new NotFoundException('المحتوى غير موجود.');
+  }
 
-    const isSoon = hoursLeft <= 24;
+  // 3. Ownership check
+  if (idea.ownerId !== userId) {
+    throw new ForbiddenException('هذه الفكرة لا تتبع لك.');
+  }
+
+  // 4. Map البيانات
+  const upcomingMeetings = idea.meetings.map((meeting) => {
+    const now = new Date();
+    const diffInMs = meeting.meetingDate.getTime() - now.getTime();
+
+    const hoursLeft = Math.max(
+      0,
+      Math.floor(diffInMs / (1000 * 60 * 60))
+    );
 
     return {
       id: meeting.id,
       idea_title: idea.title,
+
       meeting_date: meeting.meetingDate,
+      meeting_link: meeting.meetingLink,
       notes: meeting.notes,
       requested_by: meeting.requestedBy,
       type: meeting.type,
-      hours_left: Math.floor(hoursLeft),
-      is_soon: isSoon,
+
+      hours_left: hoursLeft,
+      is_soon: hoursLeft <= 24,
     };
   });
 
   return {
     message: 'تم جلب الاجتماعات القادمة لهذه الفكرة بنجاح.',
     idea_id: idea.id,
-    upcoming_meetings: formattedMeetings,
+    upcoming_meetings: upcomingMeetings,
   };
 }
 
-
-async showIdeaOwnerAndThereIdeasAndMeetingForCommitee(userId: number) {
-
-  // 1. Fetch the user and their committee membership
-  //that mean user.committeeMember
-const user = await this.prisma.user.findUnique({
-  where: { id: userId },
-
- include: { committeeMembers: true }
-
-
-
-});
-// 2. Guard clause (similar to if (!$user->committeeMember))
-  if (!user || !user.committeeMembers) {
-    throw new ForbiddenException('أنت لست عضوًا في لجنة.');
-  }
-//there to many committee so we use [0] to specify the first committee that the user is a member of, and then we access its committeeId property to get the ID of that committee. 
-  const CommitteeId=user.committeeMembers[0]?.committeeId;
-
-
-const idea= await this.prisma.idea.findMany({
-  where: { committeeId: CommitteeId,
- },
-  
-  include: {
-    owner: true,
-    meetings: true,
-  }});
-  // return idea.map((idea) => ({
-//   const { password, hashedRefreshToken, ...ownerRest } = idea.owner;
-// ...idea,
-// meeting:idea.meetings.map((meeting) => ({...meeting})),
-// idea_owner:idea.owner.name
-
-
-
-return idea.map((idea) => {
-  const { password, hashedRefreshToken, ...ownerRest } = idea.owner;
-  return {
-...idea,
-meeting:idea.meetings.map((meeting) => ({...meeting})),
-idea_owner: {
-      ...ownerRest, // This is the 'clean' owner
-    },
-
-
-  };});
-
-  
-}
-
-
-
-async updateMeetiungLinkandNotesAndMeetingDate(userId: number, meetingId: number, updateMeetingDto: UpdateMeetingDto) {
-
-  const user= await this.prisma.user.findUnique({
+async committeeIdeasMeetings(userId: number) {
+  // 1. Check if user is committee member
+  const user = await this.prisma.user.findUnique({
     where: { id: userId },
-    include: { committeeMembers: true }
-  });
-
-  if (!user || !user.committeeMembers) {
-    throw new ForbiddenException('أنت لست عضوًا في لجنة.');
-  }
-  const userCommitteeId = user.committeeMembers[0].committeeId;
-
-
-
-  const meeting = await this.prisma.meeting.findUnique({
-    where: { id: meetingId },
     include: {
-      idea: true, // Include the related idea to check its committeeId
-    },  
-  });
-  if (!meeting) {
-    throw new NotFoundException('Meeting not found');
-  }
-  ///if the 
-  if(meeting.idea?.committeeId !== userCommitteeId){
-    throw new ForbiddenException('You are not authorized to update this meeting');
-  }
-  return this.prisma.meeting.update({
-    where: { id: meetingId },
-    data: {
-      meetingDate: updateMeetingDto.meetingDate,
-      notes: updateMeetingDto.notes,
-      meetingLink: updateMeetingDto.meetingLink,
+      committeeMembers: true,
     },
-  }); 
-}
-
-
-
-
-// عمل اجتماع من قبل اللجنة من اجل مناقشة خطة العمل
-async scheduleAdvanceMeeting(ideaId: number, userId: number, dto: UpdateMeetingDto) {
-  // 1. Get user and their committee
-  const user = await this.prisma.user.findUnique({
-    where: { id: userId },
-    include: { committeeMembers: true }
-  });
-
-  const userCommitteeId = user?.committeeMembers[0]?.committeeId;
-
-  // 2. Get the Idea with its owner and its existing meetings
-  const idea = await this.prisma.idea.findUnique({
-    where: { id: ideaId },
-    include: { 
-      owner: true, 
-      meetings: true 
-    }
-  });
-
-  // 3. Security Guards
-  if (!idea) throw new NotFoundException('Idea not found');
-  
-  if (!userCommitteeId || idea.committeeId !== userCommitteeId) {
-    throw new ForbiddenException('ليس لديك صلاحية جدولة الاجتماع لهذه الفكرة.');
-  }
-
-  if (!idea.owner) {
-    throw new NotFoundException('Idea owner not found');
-  }
-
-  // 4. Find if this IDEA already has a 'business_plan_review' meeting
-  const existingMeeting = idea.meetings.find(m => m.type === 'business_plan_review');
-
-  if (existingMeeting) {
-    // UPDATE the existing meeting
-    return this.prisma.meeting.update({
-      where: { id: existingMeeting.id },
-      data: {
-        meetingDate: dto.meetingDate ?? existingMeeting.meetingDate,
-        notes: dto.notes ?? existingMeeting.notes,
-        meetingLink: dto.meetingLink ?? existingMeeting.meetingLink,
-      },
-    });
-  } else {
-    // CREATE a new meeting
-    return this.prisma.meeting.create({
-      data: {
-        ideaId: idea.id,
-        meetingDate: dto.meetingDate ?? new Date(Date.now() + 3 * 24 * 60 * 60 * 1000), // Default: +3 days
-        // meetingLink: dto.meetingLink ?? null,
-        meetingLink: dto.meetingLink ?? 'TBD', // Fixed: provide a default string instead of null
-        notes: dto.notes ?? null,
-       requestedBy: 'committee', // Fixed: 'requested_by' is a required string in your schema
-        type: 'business_plan_review',
-      },
-    });
-  }
-}async upcommingComitteeMeeting(userId: number) {
-  // 1. Get user and their committee membership (Securely)
-  const user = await this.prisma.user.findUnique({
-    where: { id: userId },
-    include: { committeeMembers: true }
   });
 
   if (!user || user.committeeMembers.length === 0) {
     throw new ForbiddenException('أنت لست عضوًا في لجنة.');
   }
 
-  // Use the ID from the database, not a parameter from the request
-  const userCommitteeId = user.committeeMembers[0].committeeId;
+  const committeeId = user.committeeMembers[0].committeeId;
+// committeeId: {
+//   in: user.committeeMembers.map(cm => cm.committeeId)
+// }
+  // 2. Get ideas + owner + meetings
+  const ideas = await this.prisma.idea.findMany({
+    where: {
+      committeeId: committeeId,
+    },
+    include: {
+      owner: true,
+      meetings: true,
+    },
+  });
 
-  // 2. Fetch meetings
-  const meetings = await this.prisma.meeting.findMany({
-    where: {  
-      idea: {
-        committeeId: userCommitteeId, // Filter by the user's committee
+  // 3. Format data
+  const formattedCommittee = ideas.map((idea) => {
+    return {
+      idea_id: idea.id,
+      title: idea.title,
+      description: idea.description,
+      status: idea.status,
+
+      meetings: idea.meetings.map((meeting) => ({
+        meeting_id: meeting.id,
+        meeting_date: meeting.meetingDate,
+        meeting_link: meeting.meetingLink,
+        notes: meeting.notes,
+        requested_by: meeting.requestedBy,
+        type: meeting.type,
+      })),
+
+      idea_owner: {
+        name: idea.owner?.name,
+        email: idea.owner?.email,
+        phone: idea.owner?.phone,
+        profile_image: idea.owner?.profileImage,
+        bio: idea.owner?.bio,
+        user_type: idea.owner?.role,
       },
+    };
+  });
+
+  // 4. Return response
+  return {
+    message: 'تم جلب جميع الأفكار التي تشرف عليها اللجنة بنجاح.',
+    ideas: formattedCommittee,
+  };
+}
+
+
+async scheduleAdvancedMeeting(
+  userId: number,
+  ideaId: number,
+  dto: {
+    meetingDate?: Date;
+    meetingLink?: string;
+    notes?: string;
+  }
+) {
+  // 1. Fetch idea + owner + committee
+  const idea = await this.prisma.idea.findUnique({
+    where: { id: ideaId },
+    include: {
+      owner: true,
+    committee: true,
+    },
+  });
+
+  if (!idea) {
+    throw new NotFoundException('الفكرة غير موجودة.');
+  }
+
+  // 2. Check committee membership
+  const user = await this.prisma.user.findUnique({
+    where: { id: userId },
+    include: {
+      committeeMembers: true,
+    },
+  });
+  // 🔥 التعديل هنا: التأكد أن الفكرة مرتبطة بلجنة
+if (!idea.committeeId) {
+  throw new ForbiddenException('هذه الفكرة لم يتم تعيينها للجنة بعد.');
+}
+  const membership = await this.prisma.committeeMember.findFirst({
+  where: {
+    userId: userId,
+    committeeId: idea.committeeId,
+  },
+});
+
+if (!membership) {
+  throw new ForbiddenException('ليس لديك صلاحية');
+}
+
+  const isAllowed = user?.committeeMembers.some(
+    (cm) => cm.committeeId === idea.committeeId
+  );
+
+  if (!isAllowed) {
+    throw new ForbiddenException(
+      'ليس لديك صلاحية جدولة الاجتماع لهذه الفكرة.'
+    );
+  }
+
+  // 3. Check idea owner
+  if (!idea.owner) {
+    throw new NotFoundException('الفكرة لا تملك صاحب.');
+  }
+
+  // 4. UPSERT meeting (🔥 أفضل من Laravel)
+  const meeting = await this.prisma.meeting.upsert({
+    where: {
+      ideaId_type: {
+        ideaId: idea.id,
+        type: 'business_plan_review',
+      },
+    },
+    update: {
+      meetingDate: dto.meetingDate ?? undefined,
+      meetingLink: dto.meetingLink ?? undefined,
+      notes: dto.notes ?? undefined,
+    },
+    create: {
+      ideaId: idea.id,
+      meetingDate: dto.meetingDate ?? new Date(Date.now() + 3 * 86400000), // +3 days
+      meetingLink: dto.meetingLink ?? "",
+      notes: dto.notes ?? null,
+      requestedBy: 'committee',
+      type: 'business_plan_review',
+    },
+  });
+
+  return {
+    message: 'تم جدولة الاجتماع للتقييم المتقدم بنجاح.',
+    meeting,
+  };
+}
+//show the meething of committee 
+async upcomingCommitteeMeetings(userId: number) {
+  // 1. تأكد أن المستخدم عضو لجنة
+  const user = await this.prisma.user.findUnique({
+    where: { id: userId },
+    include: {
+      committeeMembers: true,
+    },
+  });
+
+  if (!user || user.committeeMembers.length === 0) {
+    throw new ForbiddenException('أنت لست عضو لجنة.');
+  }
+
+  const committeeId = user.committeeMembers[0].committeeId;
+
+  // 2. جلب الاجتماعات المرتبطة بأفكار نفس اللجنة
+  const meetings = await this.prisma.meeting.findMany({
+    where: {
       meetingDate: {
-        gte: new Date(), // Only future meetings
+        gte: new Date(), // نفس now()
+      },
+      idea: {
+        committeeId: committeeId, // 🔥 equivalent of whereHas
       },
     },
     include: {
-      idea: { select: { title: true } } // Like with(['idea:id,title'])
+      idea: {
+        select: {
+          title: true,
+        },
+      },
     },
     orderBy: {
       meetingDate: 'asc',
     },
-  }); 
-  
-  // 3. Map and calculate "Soon" logic (Laravel's diffInHours)
-  const now = new Date();
+  });
 
-  return meetings.map((meeting) => {
-    const diffInMs = meeting.meetingDate.getTime() - now.getTime();
-    const hoursLeft = Math.floor(diffInMs / (1000 * 60 * 60));
-    const isSoon = hoursLeft <= 24;
+  // 3. تنسيق البيانات (map)
+  const formattedMeetings = meetings.map((meeting) => {
+    const now = new Date();
+    const diffMs = meeting.meetingDate.getTime() - now.getTime();
+
+    const hoursLeft = Math.max(
+      0,
+      Math.floor(diffMs / (1000 * 60 * 60))
+    );
 
     return {
       id: meeting.id,
       idea_title: meeting.idea?.title,
-      meeting_date: meeting.meetingDate, // You can use a library like 'date-fns' to format this
+      meeting_date: meeting.meetingDate,
       meeting_link: meeting.meetingLink,
       notes: meeting.notes,
       requested_by: meeting.requestedBy,
       type: meeting.type,
+
       hours_left: hoursLeft,
-      is_soon: isSoon,
+      is_soon: hoursLeft <= 24,
     };
   });
+
+  // 4. response
+  return {
+    message: 'تم جلب الاجتماعات القادمة الخاصة باللجنة بنجاح.',
+    upcoming_meetings: formattedMeetings,
+  };
 }
+
+
+
 }

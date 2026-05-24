@@ -1,323 +1,289 @@
-// import {
-//   Injectable,
-//   NotFoundException,
-//   ForbiddenException,
-// } from '@nestjs/common'; 
-// import { PrismaService } from 'src/prisma/prisma.service';
-// import { CreateBusinessPlanDto } from './dto/create-business-plan.dto';
-// import { UpdateBusinessPlanDto } from './dto/update-business-plan.dto';
+import {
+	ConflictException,
+	ForbiddenException,
+	Injectable,
+	NotFoundException,
+} from '@nestjs/common';
+import { BusinessPlanStatus, Role } from '@prisma/client';
+import { PrismaService } from 'src/prisma/prisma.service';
+import { CreateBusinessPlanDto } from './dto/create-business-plan.dto';
+import { UpdateBusinessPlanDto } from './dto/update-business-plan.dto';
 
-// @Injectable()
-// export class BusinessPlansService {
-//   constructor(private prisma: PrismaService) {}
+@Injectable()
+export class BusinessPlansService {
+	constructor(private readonly prisma: PrismaService) {}
 
-//   async create(createBusinessPlanDto: CreateBusinessPlanDto) {
+	private async getUserOrThrow(userId: number) {
+		const user = await this.prisma.user.findUnique({ where: { id: userId } });
+		if (!user) {
+			throw new NotFoundException('User not found');
+		}
+		return user;
+	}
 
-//     // استخراج ideaId من DTO
-//     const { ideaId } = createBusinessPlanDto;
+	async create(userId: number, dto: CreateBusinessPlanDto) {
+		const user = await this.getUserOrThrow(userId);
 
-//     // جلب الفكرة مع العلاقات المهمة
-//     const idea = await this.prisma.idea.findUnique({
-//       where: { id: ideaId },
-//       include: {
-//         owner: true,
-//         roadmap: true,
-//         committee: {
-//           include: {
-//             members: true,
-//           },
-//         },
-//       },
-//     });
-    
-//     // التحقق أن الفكرة موجودة
-//     if (!idea) {
-//       throw new NotFoundException('Idea not found');
-//     }
+		const idea = await this.prisma.idea.findUnique({
+			where: { id: dto.ideaId },
+			include: {
+				businessPlans: true,
+			},
+		});
 
-//     // التحقق من تقييم الفكرة
-//     const ideaScore = idea.initialEvaluationScore ?? 0;
+		if (!idea) {
+			throw new NotFoundException('Idea not found');
+		}
 
-//     if (ideaScore < 80) {
-//       throw new ForbiddenException(
-//         'Idea score is too low to create a business plan',
-//       );
-//     }
+		const canCreate = user.role === Role.ADMIN || idea.ownerId === user.id;
+		if (!canCreate) {
+			throw new ForbiddenException('You do not have permission to create a business plan for this idea');
+		}
 
-//     // التحقق هل يوجد خطة عمل approved
-//     const approvedPlan = await this.prisma.businessPlan.findFirst({
-//       where: {
-//         ideaId: ideaId,
-//         status: 'APPROVED',
-//       },
-//     });
+		const activeStatuses = new Set<BusinessPlanStatus>([
+			BusinessPlanStatus.UNDER_REVIEW,
+			BusinessPlanStatus.APPROVED,
+		]);
 
-//     if (approvedPlan) {
-//       throw new ForbiddenException(
-//         'A business plan for this idea is already approved',
-//       );
-//     }
+		const hasActivePlan = idea.businessPlans.some((plan) => activeStatuses.has(plan.status));
 
-//     // إنشاء خطة العمل
-//     const businessPlan = await this.prisma.businessPlan.create({
-//       data: {
-//         ideaId: ideaId,
-//         keyPartners: createBusinessPlanDto.keyPartners,
-//         keyActivities: createBusinessPlanDto.keyActivities,
-//         keyResources: createBusinessPlanDto.keyResources,
-//         valueProposition: createBusinessPlanDto.valueProposition,
-//         customerRelationships:
-//         createBusinessPlanDto.customerRelationships,
-//         channels: createBusinessPlanDto.channels,
-//         customerSegments: createBusinessPlanDto.customerSegments,
-//         costStructure: createBusinessPlanDto.costStructure,
-//         revenueStreams: createBusinessPlanDto.revenueStreams,
-//         status: 'UNDER_REVIEW',
-//      },
-//   });
-                       
-//     // إنشاء اجتماع لمراجعة خطة العمل
-//     const meeting = await this.prisma.meeting.create({
-//       data: {
-//         ideaId: idea.id,
-//         meetingDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
-//         type: 'business_plan_review',
-//         requestedBy: 'committee',
-//         notes:
-//           'تم تحديد اجتماع لمراجعة خطة العمل ومناقشة تفاصيل المشروع.',
-//       },
-//     });
+		if (hasActivePlan && user.role !== Role.ADMIN) {
+			throw new ConflictException('This idea already has an active business plan');
+		}
 
-//     // إنشاء تقرير تقييم
-//     const report = await this.prisma.report.create({
-//       data:{
-//         ideaId: idea.id,
-//         title: 'Business Plan Evaluation',
-//         content: 'سيتم تقييم خطة العمل بعد الاجتماع.',
-//         reportType: 'advanced',
-//       },
-//     });
+		const businessPlan = await this.prisma.businessPlan.create({
+			data: {
+				ideaId: dto.ideaId,
+				keyPartners: dto.keyPartners,
+				keyActivities: dto.keyActivities,
+				keyResources: dto.keyResources,
+				valueProposition: dto.valueProposition,
+				customerRelationships: dto.customerRelationships,
+				channels: dto.channels,
+				customerSegments: dto.customerSegments,
+				costStructure: dto.costStructure,
+				revenueStreams: dto.revenueStreams,
+				status: dto.status ?? BusinessPlanStatus.UNDER_REVIEW,
+			},
+			include: {
+				idea: {
+					select: {
+						id: true,
+						title: true,
+						ownerId: true,
+						committeeId: true,
+					},
+				},
+			},
+		});
 
-//     // تحديث الـ roadmap
-//     const stages = [
-//       'Idea Submission',
-//       'Initial Evaluation',
-//       'Systematic Planning / Business Plan Preparation',
-//       'Advanced Evaluation Before Funding',
-//       'Funding',
-//       'Execution and Development',
-//       'Launch',
-//       'Post-Launch Follow-up',
-//     ];
+		return {
+			message: 'Business plan created successfully',
+			businessPlan,
+		};
+	}
 
-//     const currentStage =
-//       'Systematic Planning / Business Plan Preparation';
+	async findAll() {
+		return this.prisma.businessPlan.findMany({
+			include: {
+				idea: {
+					select: {
+						id: true,
+						title: true,
+						ownerId: true,
+						committeeId: true,
+					},
+				},
+			},
+			orderBy: {
+				createdAt: 'desc',
+			},
+		});
+	}
 
-//     const stageIndex = stages.indexOf(currentStage);
+	async findMine(userId: number) {
+		await this.getUserOrThrow(userId);
 
-//     const progress =
-//       ((stageIndex + 1) / stages.length) * 100;
+		return this.prisma.businessPlan.findMany({
+			where: {
+				idea: {
+					ownerId: userId,
+				},
+			},
+			include: {
+				idea: {
+					select: {
+						id: true,
+						title: true,
+						ownerId: true,
+						committeeId: true,
+					},
+				},
+			},
+			orderBy: {
+				createdAt: 'desc',
+			},
+		});
+	}
 
-//     const nextStep =
-//       stageIndex + 1 < stages.length
-//         ? stages[stageIndex + 1]
-//         : null;
+	async findByIdea(ideaId: number, userId: number) {
+		const user = await this.getUserOrThrow(userId);
 
-//     // تحديث أو إنشاء roadmap
-//     if (!idea.roadmap) {
-//       await this.prisma.roadmap.create({
-//         data: {
-//           ideaId: idea.id,
-//           currentStage: currentStage,
-//           progressPercentage: Math.round(progress),
-//           stageDescription: 'Business plan preparation stage',
-//           nextStep: nextStep,
-//           lastUpdate: new Date(),
-//         },
-//       });
-//     } else {
-//       await this.prisma.roadmap.update({
-//         where: { ideaId: idea.id },
-//         data: {
-//           currentStage: currentStage,
-//           progressPercentage: Math.round(progress),
-//           nextStep: nextStep,
-//           lastUpdate: new Date(),
-//         },
-//       });
-//     }
+		const idea = await this.prisma.idea.findUnique({
+			where: { id: ideaId },
+			include: {
+				committee: {
+					include: {
+						members: true,
+					},
+				},
+			},
+		});
 
-//     // تحديث مرحلة الفكرة
-//     await this.prisma.idea.update({
-//       where: { id: idea.id },
-//       data: {
-//         roadmapStage: currentStage,
-//       },
-//     });
+		if (!idea) {
+			throw new NotFoundException('Idea not found');
+		}
 
-//     return {
-//       message: 'Business plan created successfully',
-//       businessPlan,
-//       meeting,
-//       report,
-//     };
-//   }
-//   findAll() {
-//     return this.prisma.businessPlan.findMany();
-//   }
-  
-//   // }  const idea = await this.prisma.idea.findUnique({
-//   //     where: { id: ideaId },
-//   //     include: {
-//   //       owner: true,
-//   //       roadmap: true,
-//   //       committee: {
-//   //         include: {
-//   //           members: true,
-//   //         },
-//   //       },
-//   //     },
-//   //   });
-// async getAllForCommittee(userId: number) {
+		const isCommitteeMember = idea.committee?.members.some((member) => member.userId === user.id) ?? false;
 
-//   // التأكد أن المستخدم عضو لجنة
-//   const committeeMember = await this.prisma.committeeMember.findFirst({
-//     where: { userId },
-//   });
+		if (user.role !== Role.ADMIN && idea.ownerId !== user.id && !isCommitteeMember) {
+			throw new ForbiddenException('You do not have permission to access business plans for this idea');
+		}
 
-//   if (!committeeMember) {
-//     throw new ForbiddenException('هذا المستخدم ليس عضو لجنة');
-//   }
+		return this.prisma.businessPlan.findMany({
+			where: { ideaId },
+			include: {
+				idea: {
+					select: {
+						id: true,
+						title: true,
+						ownerId: true,
+						committeeId: true,
+					},
+				},
+			},
+			orderBy: {
+				createdAt: 'desc',
+			},
+		});
+	}
 
-//   const ideas = await this.prisma.idea.findMany({
-//     where: {
-//       committeeId: committeeMember.committeeId,
-//       businessPlans: {
-//         some: {}
-//       }
-//     },
-//     include: {
-//       businessPlans: true
-//     },
-//     orderBy: {
-//       createdAt: 'desc'
-//     }
-//   });
+	async findOne(id: number, userId: number) {
+		const user = await this.getUserOrThrow(userId);
 
-//   return ideas.map((idea) => ({
-//     idea_id: idea.id,
-//     idea_title: idea.title,
-//     idea_description: idea.description,
-//     idea_status: idea.status,
-//     roadmap_stage: idea.roadmapStage,
-//     business_plan: idea.businessPlans[0] ?? null
-//   }));
-// }
+		const businessPlan = await this.prisma.businessPlan.findUnique({
+			where: { id },
+			include: {
+				idea: {
+					include: {
+						committee: {
+							include: {
+								members: true,
+							},
+						},
+					},
+				},
+			},
+		});
 
-// async updateBMC(
-//   ideaId: number,
-//   userId: number,
-//   dto: UpdateBusinessPlanDto
-// ) {
+		if (!businessPlan) {
+			throw new NotFoundException('Business plan not found');
+		}
 
-//   const idea = await this.prisma.idea.findUnique({
-//     where: { id: ideaId },
-//     include: {
-//       businessPlans: true,
-//       committee: {
-//         include: {
-//           members: true
-//         }
-//       },
-//       roadmap: true
-//     }
-//   });
+		const isCommitteeMember =
+			businessPlan.idea.committee?.members.some((member) => member.userId === user.id) ?? false;
 
-//   if (!idea) {
-//     throw new NotFoundException('Idea not found');
-//   }
+		if (
+			user.role !== Role.ADMIN &&
+			businessPlan.idea.ownerId !== user.id &&
+			!isCommitteeMember
+		) {
+			throw new ForbiddenException('You do not have permission to access this business plan');
+		}
 
-//   // التأكد أن المستخدم صاحب الفكرة
-//   if (idea.ownerId !== userId) {
-//     throw new ForbiddenException('ليس لديك صلاحية تعديل خطة العمل');
-//   }
+		return businessPlan;
+	}
 
-//   const businessPlan = idea.businessPlans[0];
+	async update(id: number, userId: number, dto: UpdateBusinessPlanDto) {
+		const user = await this.getUserOrThrow(userId);
 
-//   if (!businessPlan) {
-//     throw new NotFoundException('لا توجد خطة عمل لهذه الفكرة');
-//   }
+		const businessPlan = await this.prisma.businessPlan.findUnique({
+			where: { id },
+			include: {
+				idea: {
+					select: {
+						ownerId: true,
+					},
+				},
+			},
+		});
 
-//   if (
-//     businessPlan.status === 'APPROVED'
-//   ) {
-//     throw new ForbiddenException(
-//       'تمت الموافقة على خطة العمل ولا يمكن تعديلها'
-//     );
-//   }
+		if (!businessPlan) {
+			throw new NotFoundException('Business plan not found');
+		}
 
-//   const updatedPlan = await this.prisma.businessPlan.update({
-//     where: { id: businessPlan.id },
-//     data: {
-//       ...dto,
-//       status: 'NEEDS_REVISION'
-//     }
-//   });
+		const canUpdate = user.role === Role.ADMIN || businessPlan.idea.ownerId === user.id;
+		if (!canUpdate) {
+			throw new ForbiddenException('You do not have permission to update this business plan');
+		}
 
-//   // تحديث الـ roadmap
-//   const stage =
-//     'Systematic Planning / Business Plan Preparation';
+		if (businessPlan.status === BusinessPlanStatus.APPROVED && user.role !== Role.ADMIN) {
+			throw new ForbiddenException('Approved business plans can only be updated by admins');
+		}
 
-//   const stages = [
-//     'Idea Submission',
-//     'Initial Evaluation',
-//     'Systematic Planning / Business Plan Preparation',
-//     'Advanced Evaluation Before Funding',
-//     'Funding',
-//     'Execution and Development',
-//     'Launch',
-//     'Post-Launch Follow-up'
-//   ];
+		if (dto.status && user.role === Role.IDEA_OWNER) {
+			throw new ForbiddenException('Idea owners cannot directly change business plan status');
+		}
 
-//   const index = stages.indexOf(stage);
+		return this.prisma.businessPlan.update({
+			where: { id },
+			data: {
+				...dto,
+			},
+			include: {
+				idea: {
+					select: {
+						id: true,
+						title: true,
+						ownerId: true,
+						committeeId: true,
+					},
+				},
+			},
+		});
+	}
 
-//   const progress = ((index + 1) / stages.length) * 100;
+	async remove(id: number, userId: number) {
+		const user = await this.getUserOrThrow(userId);
 
-//   await this.prisma.roadmap.upsert({
-//     where: { ideaId },
-//     update: {
-//       currentStage: stage,
-//       progressPercentage: Math.round(progress),
-//       stageDescription:
-//         'Idea owner updated the business plan',
-//       nextStep: 'Awaiting Committee Review',
-//       lastUpdate: new Date()
-//     },
-//     create: {
-//       ideaId,
-//       currentStage: stage,
-//       progressPercentage: Math.round(progress),
-//       stageDescription:
-//         'Idea owner updated the business plan',
-//       nextStep: 'Awaiting Committee Review',
-//       lastUpdate: new Date()
-//     }
-//   });
+		const businessPlan = await this.prisma.businessPlan.findUnique({
+			where: { id },
+			include: {
+				idea: {
+					select: {
+						ownerId: true,
+					},
+				},
+			},
+		});
 
-//   // إرسال إشعارات لأعضاء اللجنة
-//   if (idea.committee) {
-//     for (const member of idea.committee.members) {
-//       await this.prisma.notification.create({
-//         data: {
-//           userId: member.userId,
-//           title: 'تم تعديل خطة العمل',
-//           message: `تم تعديل خطة العمل للفكرة '${idea.title}'`,
-//           type: 'bmc_updated'
-//         }
-//       });
-//     }
-//   }
+		if (!businessPlan) {
+			throw new NotFoundException('Business plan not found');
+		}
 
-//   return updatedPlan;
-// }
-// }
+		const isOwner = businessPlan.idea.ownerId === user.id;
+		const isAdmin = user.role === Role.ADMIN;
+
+		if (!isOwner && !isAdmin) {
+			throw new ForbiddenException('You do not have permission to delete this business plan');
+		}
+
+		if (businessPlan.status === BusinessPlanStatus.APPROVED && !isAdmin) {
+			throw new ForbiddenException('Approved business plans can only be deleted by admins');
+		}
+
+		return this.prisma.businessPlan.delete({
+			where: { id },
+		});
+	}
+}

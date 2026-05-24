@@ -30,6 +30,7 @@ export const authFetch = async (url: string, options: FetchOptions = {}) => {
     "Content-Type": "application/json",
     ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
   };
+  options.cache = "no-store";
 
   try {
     console.log(`--- [Server Action: authFetch] 📡 Sending request to: ${fullUrl} with headers: ${JSON.stringify(options.headers)} ---`);

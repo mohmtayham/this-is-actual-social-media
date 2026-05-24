@@ -119,6 +119,7 @@ export class LaunchSchedulerService {
   @Cron(CronExpression.EVERY_MINUTE)
   async notifyUpcomingMeetings() {
     this.logger.log('Starting notifyUpcomingMeetings job');
+    this.logger.log(`Prisma is: ${!!this.prisma}`);
 
     const now = new Date();
 

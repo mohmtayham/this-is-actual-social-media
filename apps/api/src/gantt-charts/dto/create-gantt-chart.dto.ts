@@ -1,14 +1,28 @@
-import { IsString, IsInt, IsDateString, Min, Max, IsOptional, IsNumber } from 'class-validator';
+import {
+  IsDateString,
+  IsIn,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsPositive,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export class CreateGanttChartDto {
   @IsInt()
+  @IsPositive()
   ideaId: number;
 
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
   phaseName: string;
 
   @IsDateString()
-  startDate: string; // أو Date، ولكن DateString أسهل للـ API
+  startDate: string;
 
   @IsDateString()
   endDate: string;
@@ -25,6 +39,6 @@ export class CreateGanttChartDto {
   failureCount?: number;
 
   @IsOptional()
-  @IsString()
-  approvalStatus?: string; // عادةً "pending", "approved", "rejected"
+  @IsIn(['pending', 'approved', 'rejected', 'in_progress', 'completed'])
+  approvalStatus?: string;
 }

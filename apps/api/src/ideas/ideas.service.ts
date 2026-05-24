@@ -50,8 +50,16 @@ export class IdeasService {
           solution: dto.solution,
           targetAudience: dto.target_audience,
           additionalNotes: dto.additional_notes,
-          status: IdeaStatus.UNDER_REVIEW, // بدلاً من 'pending'
+          status: IdeaStatus.UNDER_REVIEW, 
           roadmapStage: 'Idea Submission',
+          roadmap: {
+            create: {
+              currentStage: 'Idea Submission',
+              progressPercentage: 10,
+              stageDescription: 'The idea has been submitted and is waiting for initial evaluation.',
+              nextStep: 'Initial Evaluation'
+            }
+          }
         },
       });
 
@@ -61,22 +69,33 @@ export class IdeasService {
         message: 'Idea submitted and assigned to committee successfully',
         ideaId: idea.id,
       };
-    } catch (error) {
-      this.logger.error(`Failed to create idea: ${error.message}`);
+    } catch (error: any) {
+      this.logger.error(`Failed to create idea: ${error.message}`, error.stack);
       throw error;
     }
   }
+
+  
  async findByOwner(userId: number) {
   console.log(`--- 🔍 [Backend: IdeasService] findByOwner STARTED for userId: ${userId} ---`);
   
+
+
   try {
+    const user = await this.prisma.user.findUnique({
+  where: { id: userId }
+});
+if (!userId || isNaN(userId)) {
+    console.error(`[IdeasService] ❌ Cannot fetch ideas. Invalid or Undefined userId: ${userId}`);
+    return []; // أو يمكنك رمي خطأ: throw new BadRequestException('User ID is required');
+  }
     // طباعة نوع البيانات للتأكد هل هو Number أم String
     console.log(`[IdeasService] Type of userId is: ${typeof userId}`);
 
     const ideas = await this.prisma.idea.findMany({
       where: {
         // ⚠️ تأكد من أن اسم الحقل هنا (مثلاً ownerId) هو نفسه الموجود في prisma.schema لديك
-        ownerId: userId, 
+        ownerId: Number(userId), 
       },
     });
 

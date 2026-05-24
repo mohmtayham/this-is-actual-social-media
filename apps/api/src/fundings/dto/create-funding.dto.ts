@@ -1,39 +1,52 @@
 import {
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
   IsInt,
+  IsNotEmpty,
+  IsPositive,
+  Min,
+  MaxLength,
 } from 'class-validator';
 
 export class CreateFundingDto {
   @IsNumber()
+  @IsPositive()
   requestedAmount: number;
 
   @IsOptional()
   @IsNumber()
+  @Min(0)
   approvedAmount?: number;
 
   @IsOptional()
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(3000)
   justification?: string;
 
   @IsOptional()
-  @IsString()
+  @IsIn(['requested', 'under_review', 'approved', 'rejected', 'released'])
   status?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(3000)
   committeeNotes?: string;
 
   @IsInt()
+  @IsPositive()
   ideaId: number;
 
   @IsOptional()
   @IsInt()
+  @IsPositive()
   ganttId?: number;
 
   @IsOptional()
   @IsInt()
+  @IsPositive()
   taskId?: number;
 }
 

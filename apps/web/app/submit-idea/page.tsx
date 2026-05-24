@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"; // تغيير من react-router-dom
 import dynamic from "next/dynamic";
 import CreativeIdea from '@/assets/animations/Creative Idea.json';
 // تأكد من تحديث مسار الـ service ليتناسب مع Next.js
-import ideaService from "@/services/ideaService"; 
+import { submitIdeaAction } from "@/lib/actions"; 
 
 // استيراد Lottie بشكل ديناميكي لمنع أخطاء Hydration
 const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
@@ -44,7 +44,12 @@ const IdeaSubmissionForm = () => {
     setSuccessMessage(null);
     
     try {
-      const result = await ideaService.addIdea(formData);
+      const result = await submitIdeaAction(formData);
+      if (!result.success) {
+        setErrorMessage(result.message || "Failed to submit idea.");
+        setLoading(false);
+        return;
+      }
       setSuccessMessage(result.message || "Idea submitted successfully!");
 
       setFormData({

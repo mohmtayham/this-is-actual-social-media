@@ -9,7 +9,7 @@ export class UserService {
 
   async create(createUserDto: CreateUserDto) {
     const { password, ...user } = createUserDto;
-    const hashedPassword = await hash(password);
+    const hashedPassword = password.startsWith('$argon2') ? password : await hash(password);
     return await this.prisma.user.create({
       data: {
         password: hashedPassword,

@@ -6,7 +6,7 @@ import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
-import { JwtAuthGuard } from './auth/guards/jwt-auth/jwt-auth.guard';
+// import { JwtAuthGuard } from './auth/guards/jwt-auth/jwt-auth.guard';
 import { IdeasModule } from './ideas/ideas.module';
 import { BusinessPlansModule } from './business-plans/business-plans.module';
 import { CommitteesModule } from './committees/committees.module';
@@ -20,10 +20,12 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { ProfileModule } from './profile/profile.module';
 // import { MeetingsResolver } from './meetings/meetings.resolver';
 import { PostLaunchFollowupsModule } from './post-launch-followups/post-launch-followups.module';
-import { MettingModule } from './meeting/meeting.module';
 import { LaunchSchedulerModule } from './launch-scheduler/launch-scheduler.module';
 import { WalletTransactionModule } from './wallet-transaction/wallet-transaction.module';
 import { LaunchRequestModule } from './launch-request/launch-request.module';
+import { MeetingModule } from './meeting/meeting.module';
+import { Reflector } from '@nestjs/core';
+import { JwtAuthGuard } from './auth/guards/jwt-auth/jwt-auth.guard';
 
 @Module({
   imports: [
@@ -42,19 +44,21 @@ import { LaunchRequestModule } from './launch-request/launch-request.module';
     ReportsModule,
     NotificationsModule,
     ProfileModule,
-    MettingModule,
     PostLaunchFollowupsModule,
     WalletTransactionModule,
     LaunchRequestModule,
+    MeetingModule,
   ],
   controllers: [AppController],
   providers: [
     AppService,
     PrismaService,
-    {
-      provide: APP_GUARD,
-      useClass: JwtAuthGuard,
-    },
+  {
+  provide: APP_GUARD,
+  useFactory: (reflector: Reflector) => new JwtAuthGuard(reflector),
+  inject: [Reflector],
+}
+
     // MeetingsResolver,
   ],
 })

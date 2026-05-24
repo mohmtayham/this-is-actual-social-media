@@ -1,23 +1,37 @@
-import { IsDateString, IsInt, IsOptional, IsString } from 'class-validator';
+import { 
+  IsNotEmpty, 
+  IsString, 
+  IsOptional, 
+  IsUrl, 
+  IsISO8601, 
+  IsInt, 
+  MinLength 
+} from 'class-validator';
 
 export class CreateMeetingDto {
-
-  @IsDateString()
+  
+  @IsNotEmpty({ message: 'تاريخ الاجتماع مطلوب' })
+  @IsISO8601({}, { message: 'يجب أن يكون التاريخ بصيغة ISO8601 صحيحة' })
   meetingDate: string;
 
-  @IsString()
-  type: string;
-
-  @IsString()
+  @IsNotEmpty({ message: 'رابط الاجتماع مطلوب' })
+  @IsUrl({}, { message: 'يجب أن يكون رابط الاجتماع URL صحيح' })
   meetingLink: string;
-
-  @IsString()
-  requestedBy: string;
 
   @IsOptional()
   @IsString()
+  @MinLength(3, { message: 'الملاحظات يجب أن تكون أكثر من 3 أحرف' })
   notes?: string;
 
-  @IsInt()
+  @IsNotEmpty({ message: 'نوع الاجتماع مطلوب' })
+  @IsString()
+  type: string;
+
+  @IsNotEmpty({ message: 'جهة الطلب مطلوبة' })
+  @IsString()
+  requestedBy: string;
+
+  @IsNotEmpty({ message: 'رقم الفكرة مطلوب' })
+  @IsInt({ message: 'يجب أن يكون رقم الفكرة رقماً صحيحاً' })
   ideaId: number;
 }

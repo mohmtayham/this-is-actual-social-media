@@ -1,104 +1,179 @@
-import { Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Role } from '@prisma/client';
 import { CreateWalletDto } from './dto/create-wallet.dto';
 import { UpdateWalletDto } from './dto/update-wallet.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 
 @Injectable()
 export class WalletsService {
-constructor(private prisma: PrismaService) {}
- async getWallet(userId: number) {
-    return this.prisma.wallet.findUnique({
-      where: {
-        userId: userId,
+  constructor(private readonly prisma: PrismaService) {}
+
+  private async getUserOrThrow(userId: number) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    return user;
+  }
+
+  async create(dto: CreateWalletDto) {
+    const user = await this.prisma.user.findUnique({ where: { id: dto.userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const existingWallet = await this.prisma.wallet.findUnique({
+      where: { userId: dto.userId },
+    });
+
+    if (existingWallet) {
+      throw new ConflictException('Wallet already exists for this user');
+    }
+
+    return this.prisma.wallet.create({
+      data: {
+        userId: dto.userId,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
       },
     });
   }
 
-async ideaOwnerTransaction(userId: number) {
-  // ✅ 1. Get user
-  const user = await this.prisma.user.findUnique({
-    where: { id: userId },
-    include: { wallet: true },
-  });
+  async getWallet(userId: number) {
+    await this.getUserOrThrow(userId);
 
-  if (!user) {
-    throw new Error('User not found');
+    let wallet = await this.prisma.wallet.findUnique({
+      where: { userId },
+    });
+
+    if (!wallet) {
+      wallet = await this.prisma.wallet.create({
+        data: { userId },
+      });
+    }
+
+    const balance = Number(wallet.balance);
+
+    return {
+      id: wallet.id,
+      balance,
+      currency: 'SPY',
+      wallet: {
+        balance,
+        currency: 'SPY',
+      },
+    };
   }
 
-  // ✅ 2. Role check (LIKE LARAVEL)
- 
-  const wallet = user.wallet;
+  async ideaOwnerTransaction(userId: number) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { wallet: true },
+    });
 
-  if (!wallet) {
-    throw new Error('Wallet not found for this user');
-  }
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
 
-  // ✅ 3. SAME WHERE LOGIC AS LARAVEL 🔥
-  const transactions = await this.prisma.walletTransaction.findMany({
-    where: {
-      OR: [
-        { walletId: wallet.id },
-        { senderId: wallet.id },
-        { receiverId: wallet.id },
-      ],
-    },
-    include: {
-      sender: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
-        },
+    if (!user.wallet) {
+      throw new NotFoundException('Wallet not found for this user');
+    }
+
+    const transactions = await this.prisma.walletTransaction.findMany({
+      where: {
+        OR: [
+          { walletId: user.wallet.id },
+          { senderId: user.id },
+          { receiverId: user.id },
+        ],
       },
-      receiver: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
+      include: {
+        sender: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
         },
-      },
-      funding: {
-        select: {
-          idea: {
-            select: {
-              id: true,
-              title: true,
+        receiver: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        funding: {
+          select: {
+            idea: {
+              select: {
+                id: true,
+                title: true,
+              },
             },
           },
         },
       },
-    },
-    orderBy: {
-      createdAt: 'desc',
-    },
-  });
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
 
-  // ✅ 4. SAME MAP AS LARAVEL 🔥
-  const data = transactions.map((tx) => ({
-    transaction_id: tx.id,
-    type: tx.transactionType,
-    amount: tx.amount,
-    status: tx.status,
-    date: tx.createdAt,
-
-    // 🔥 IMPORTANT LOGIC
-    direction:
-      tx.senderId === wallet.id ? 'outgoing' : 'incoming',
-
-    from: tx.sender?.name ?? '—',
-    to: tx.receiver?.name ?? '—',
-
-    payment_method: tx.paymentMethod,
-    notes: tx.notes,
-  }));
-
-  // ✅ 5. SAME RESPONSE STRUCTURE
-  return {
-    wallet_id: wallet.id,
-    owner_name: user.name,
-    balance: wallet.balance,
-    transactions: data,
-  };
-}
-
+    return {
+      wallet_id: user.wallet.id,
+      owner_name: user.name,
+      balance: Number(user.wallet.balance),
+      transactions: transactions.map((tx) => ({
+        transaction_id: tx.id,
+        type: tx.transactionType,
+        amount: Number(tx.amount),
+        status: tx.status,
+        date: tx.createdAt,
+        direction: tx.senderId === user.id ? 'outgoing' : 'incoming',
+        from: tx.sender?.name ?? null,
+        to: tx.receiver?.name ?? null,
+        payment_method: tx.paymentMethod,
+        notes: tx.notes,
+        idea: tx.funding?.idea ?? null,
+      })),
+    };
   }
+
+  async findByUserId(requesterId: number, targetUserId: number) {
+    const requester = await this.getUserOrThrow(requesterId);
+    if (requester.role !== Role.ADMIN && requester.id !== targetUserId) {
+      throw new ForbiddenException('You do not have permission to access this wallet');
+    }
+
+    return this.getWallet(targetUserId);
+  }
+
+  async remove(id: number, requesterId: number) {
+    const requester = await this.getUserOrThrow(requesterId);
+    if (requester.role !== Role.ADMIN) {
+      throw new ForbiddenException('Only admins can delete wallets');
+    }
+
+    const wallet = await this.prisma.wallet.findUnique({ where: { id } });
+    if (!wallet) {
+      throw new NotFoundException('Wallet not found');
+    }
+
+    return this.prisma.wallet.delete({ where: { id } });
+  }
+
+  update(_id: number, _dto: UpdateWalletDto) {
+    throw new ForbiddenException('Wallet updates are not allowed directly');
+  }
+}

@@ -129,7 +129,9 @@ export async function signIn(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(validatedFields.data),
     });
-
+// ADD THIS LOG
+  console.log('--- DEBUG: Attempting to connect to:',{BACKEND_URL});
+  console.log('--- DEBUG: Is localhost the right host?', typeof window !== 'undefined' ? window.location.hostname : 'server');
     console.log(`--- [Frontend: signIn] Backend Status Code: ${response.status}`);
     console.log(`--- [Frontend: signIn] Backend Status Text: ${response.statusText}`);
 

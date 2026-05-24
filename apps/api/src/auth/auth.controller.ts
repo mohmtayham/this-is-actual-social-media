@@ -4,25 +4,21 @@ import {
   Get,
   Post,
   Req,
-  Request,
   Res,
-  SetMetadata,
-  UseGuards,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { CreateUserDto } from '../user/dto/create-user.dto';
-import { LocalAuthGuard } from './guards/local-auth/local-auth.guard';
-import { JwtAuthGuard } from './guards/jwt-auth/jwt-auth.guard';
-import { RefreshAuthGuard } from './guards/refresh-auth/refresh-auth.guard';
 // import { GoogleAuthGuard } from './guards/google-auth/google-auth.guard';
 import { Response } from 'express';
 import { Public } from './decorators/public.decorator';
-import { Roles } from './decorators/roles.decorator';
-import { RolesGuard } from './guards/roles/roles.guard';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+
+  constructor(private readonly authService: AuthService) {
+        console.log('AuthService injected:', !!authService, authService);
+  }
 @Public()
 @Post('signup')
 async registerUser(@Body() createUserDto: CreateUserDto) {
@@ -34,30 +30,30 @@ async registerUser(@Body() createUserDto: CreateUserDto) {
     console.log('✅ Registration Successful in DB');
     return result;
   } catch (error) {
-    console.error('❌ Service Layer Error:', error.message);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('❌ Service Layer Error:', message);
     throw error;
   }
 }
  @Public()
-  @UseGuards(LocalAuthGuard)
   @Post('signin')
-  login(@Request() req) {
-    return this.authService.login(req.user.id, req.user.name, req.user.role);
-  }
+async login(@Body() body: { email: string; password: string }) {
+  console.log('Login method called', { authService: !!this.authService });
+  const user = await this.authService.validateLocalUser(body.email, body.password);
+  return this.authService.login(user.id, user.name, user.role);
+}
 
-  @Roles('ADMIN')
-  @Get('protected')
-  getAll(@Request() req) {
-    return {
-      messege: `Now you can access this protected API. this is your user ID: ${req.user.id}`,
-    };
-  }
 
   @Public()
-  @UseGuards(RefreshAuthGuard)
   @Post('refresh')
-  refreshToken(@Request() req) {
-    return this.authService.refreshToken(req.user.id, req.user.name, req.user.role);
+  async refreshToken(@Body() body: { refresh: string }) {
+    if (!body.refresh) {
+      throw new UnauthorizedException('Refresh token is required');
+    }
+
+    const payload = await this.authService.verifyRefreshToken(body.refresh);
+    const user = await this.authService.getUserOrThrow(payload.sub);
+    return this.authService.refreshToken(user.id, user.name, user.role);
   }
 
   // @Public()
@@ -80,16 +76,23 @@ async registerUser(@Body() createUserDto: CreateUserDto) {
   //   );
   // }
 
+ @Public()
  @Post('signout')
 async signOut(@Req() req) {
-  // الـ Guard يفك التوكن ويضع البيانات هنا
-  const userId = req.user.id; 
-  
-  console.log("--- [Backend: SignOut Received] ---");
-  console.log("🔍 Revoking session for User ID:", userId);
+  const authHeader = req.headers.authorization ?? '';
+  const token = authHeader.startsWith('Bearer ')
+    ? authHeader.slice(7).trim()
+    : authHeader.trim();
 
-  // مرر الـ userId فقط وليس التوكن
-  return await this.authService.revokeToken(userId);
+  if (!token) {
+    throw new UnauthorizedException('Access token is required');
+  }
+
+  const payload = await this.authService.verifyAccessToken(token);
+  console.log("--- [Backend: SignOut Received] ---");
+  console.log("🔍 Revoking session for User ID:", payload.sub);
+
+  return await this.authService.revokeToken(payload.sub);
 }
 // async signOut(@Req() req) {
 //   const token = req.headers.authorization;
